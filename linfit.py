@@ -35,5 +35,5 @@ def main(f):
     print(pcov[0], 'Is the slope of the graph')
     plt.show()
 
-f = "Aug26-Rings2-4.dat"
+f = "fixed.dat"
 main(f)

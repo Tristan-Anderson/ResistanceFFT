@@ -44,9 +44,9 @@ def parsefile(file, stepsize=170, T="Temp (K)", B="B Field (T)", y="P124A (V)"):
     splits_for_df = numpy.arange(0,len(df[B])-1, stepsize)
     range_for_df = makeSpan(splits_for_df, len(df[B])-1, stepsize)
     for idx, i in enumerate(range_for_df): 
-        analyze(i, df,idx,T,B,y)
+        analyze(i, df,idx,T,B,y, file)
 
-def analyze(i,df,idx,T,B,y):
+def analyze(i,df,idx,T,B,y, fn):
     cut = df.iloc[i[0]:i[1]]
     other = pandas.concat([df.iloc[:i[0]], df.iloc[i[1]:]])
     print(other)
@@ -73,8 +73,8 @@ def analyze(i,df,idx,T,B,y):
     ax[2].set_xlabel('Freq (1/Tesla)')
     ax[2].scatter(freq, abs(f), label="FFT Frequencies", color="m", s=3, marker='o')
     
-    fig.suptitle("Cut "+str(idx))
-    plt.show()
+    fig.suptitle("".join(list(fn)[:-4])+" Cut "+str(idx))
+    plt.savefig("".join(list(fn)[:-4])+" Cut "+str(idx))
 
 def DFFT(x):
     N = len(x)
