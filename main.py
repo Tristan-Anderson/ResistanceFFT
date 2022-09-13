@@ -1,9 +1,11 @@
 import pandas, numpy
 import matplotlib.pyplot as plt
+import multiprocessing
+from multiprocessing import Pool
+
 """
 Test the DFFT. Make an x^2 thing with / sin(2pi x/(0.00058)) superimposed. Then test the thing.
 """
-
 
 def makeSpan(iterable, max_val, stepsize, **kwargs):
     """
@@ -37,22 +39,19 @@ def makeSpan(iterable, max_val, stepsize, **kwargs):
         pairs = [[min_val, max_val]]
     return pairs
 
-def parsefile(file, stepsize=170, T="Temp (K)", B="B Field (T)", y="P124A (V)"):
+def parsefile(file, stepsize=500, T="Temp (K)", B="B Field (T)", y="P124A (V)"):
     xlim = 5
     with open(file, 'r') as f:
         df = pandas.read_csv(f, delimiter=',')
     splits_for_df = numpy.arange(0,len(df[B])-1, stepsize)
     range_for_df = makeSpan(splits_for_df, len(df[B])-1, stepsize)
-    for idx, i in enumerate(range_for_df): 
+    for idx, i in enumerate(range_for_df):
         analyze(i, df,idx,T,B,y, file)
+    return True
 
 def analyze(i,df,idx,T,B,y, fn):
     cut = df.iloc[i[0]:i[1]]
     other = pandas.concat([df.iloc[:i[0]], df.iloc[i[1]:]])
-    print(other)
-    print([k for k in other])
-    print(cut)
-    print([k for k in cut])
     fig, ax = plt.subplots(nrows=3)
     
     ax[0].scatter(other[B], other[y], label=y+" Cut "+str(idx),color="blue", s=3)
@@ -74,7 +73,8 @@ def analyze(i,df,idx,T,B,y, fn):
     ax[2].scatter(freq, abs(f), label="FFT Frequencies", color="m", s=3, marker='o')
     
     fig.suptitle("".join(list(fn)[:-4])+" Cut "+str(idx))
-    plt.savefig("".join(list(fn)[:-4])+" Cut "+str(idx))
+    plt.savefig("dump/"+"".join(list(fn)[:-4])+" Cut "+str(idx))
+    plt.close('all')
 
 def DFFT(x):
     N = len(x)
@@ -90,15 +90,14 @@ def sin(y):
     return 1/32*numpy.sin(numpy.pi * 2*y/(0.00058))
 
 def main(filenames):
-    df = ""
-    for i in f:
+    result_objects = []
+    for i in filenames:
         parsefile(i)
+    cpus = int(round(multiprocessing.cpu_count()*.9))
+    with Pool(processes=cpus) as pool:#, initializer=start_process) 
+        result_objects.append([pool.apply_async(parsefile, i) for i in filenames])
+    pool.join()
+    pool.close()
 
-f = []
-filename = "Aug26-Rings2-1.dat"
-f.append(filename)
-filename = "Aug26-Rings2-2.dat"
-f.append(filename)
-filename = "Aug26-Rings2-3.dat"
-f.append(filename)
+f = ["Aug26-Rings2-"+str(i)+".dat" for i in range(1,8)]
 main(f)
