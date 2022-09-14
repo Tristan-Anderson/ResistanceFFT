@@ -40,23 +40,24 @@ def makeSpan(iterable, max_val, stepsize, **kwargs):
     return pairs
 
 def parsefile(file, stepsize=1500, T="Temp (K)", B="B Field (T)", y="P124A (V)", autocut=True):
-    try:
-        xlim = 5
-        with open(file, 'r') as f:
-            df = pandas.read_csv(f, delimiter=',')
-        splits_for_df = numpy.arange(0,len(df[B])-1, stepsize)
-        range_for_df = makeSpan(splits_for_df, len(df[B])-1, stepsize)
+    xlim = 5
+    with open(file, 'r') as f:
+        df = pandas.read_csv(f, delimiter=',')
+    splits_for_df = numpy.arange(0,len(df[B])-1, stepsize)
+    range_for_df = makeSpan(splits_for_df, len(df[B])-1, stepsize)
+    if autocut:
         for idx, i in enumerate(range_for_df):
-            if autocut:
-                analyze(i, df,idx,T,B,y, file)
-            else:
-                uselect(df,i, idx, T,B,y, file)
-                print("Made it!")
-    except Exception as e:
-        print(e)
+            auto_analyze(i, df,idx,T,B,y, file)
+    else:
+        uselect(df, T,B,y, file)
     return True
 
-def uselect(df,i,idx,T,B,y,file):
+def auto_analyze(i,df,idx,T,B,y, file):
+    cut = df.iloc[i[0]:i[1]]
+    other = pandas.concat([df.iloc[:i[0]], df.iloc[i[1]:]])
+    analyze(df,idx,T,B,y,file, cut,other)
+
+def uselect(df,T,B,y,file):
     b=""
     while b !='y':
         plt.close('all')
@@ -66,9 +67,10 @@ def uselect(df,i,idx,T,B,y,file):
     
         coords = plt.ginput(2)
         xax = [c[0] for c in coords]
-        cut = df[(df[B]>max(xax)) & (df[B]<min(xax))]
-        other = df[df[B]<max(xax)]
-        other = other[other[B]>min(xax)]
+        cut = df[(df[B]<max(xax)) & (df[B]>min(xax))]
+        other = df[df[B]>max(xax)]
+        other = pandas.concat([other, df[df[B]<min(xax)]])
+        print(other)
         plt.close('all')
         fig,ax = plt.subplots(2)
         ax[0].scatter(other[B], other[y])
@@ -79,10 +81,10 @@ def uselect(df,i,idx,T,B,y,file):
         plt.show()
         plt.close('all')
         b = input("Ok? (y/n): ")
-    analyze(i,df,idx,T,B,y,file,cut,other)
+    analyze(df,0,T,B,y,file,cut,other)
 
 
-def analyze(i,df,idx,T,B,y,fn,cut,other):
+def analyze(df,idx,T,B,y,fn,cut,other):
     fig, ax = plt.subplots(nrows=3)
     ax[0].scatter(other[B], other[y], label=y+" Cut "+str(idx),color="blue", s=3)
     ax[0].scatter(cut[B], cut[y], label="Data Subsection", color="red", s=3)
@@ -121,10 +123,6 @@ def DFFT(x):
     return numpy.dot(e,x)
 
 
-def auto_analyze(i,df,idx,T,B,y, fn):
-    cut = df.iloc[i[0]:i[1]]
-    other = pandas.concat([df.iloc[:i[0]], df.iloc[i[1]:]])
-    analyze(i,df,idx,T,B,y,fn)
     
 
 def x(y):
