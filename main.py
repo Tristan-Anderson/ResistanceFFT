@@ -2,6 +2,12 @@ import pandas, numpy
 import matplotlib.pyplot as plt
 import multiprocessing
 from multiprocessing import Pool
+import matplotlib
+font = {'size'   : 8}
+
+matplotlib.rc('font', **font)
+plt.rcParams.update({
+        "text.usetex": True})
 
 """
 Test the DFFT. Make an x^2 thing with / sin(2pi x/(0.00058)) superimposed. Then test the thing.
@@ -9,42 +15,68 @@ Test the DFFT. Make an x^2 thing with / sin(2pi x/(0.00058)) superimposed. Then 
 
 def makeSpan(iterable, max_val, stepsize, **kwargs):
     """
-    takes an iterable and creates a list of lists that contain start/end
-    to the unique values 
+    takes an iterable and creates a list of lists that contains
+    start/end values that by default do not overlap.
+
+    The degenerate flag allows for creation of regions with an
+    approximately fixed width to shift through the data at a 
+    given step-size
+
     """
+    degenerate = kwargs.pop('degenerate', False)
     min_val = kwargs.pop("min_val", min(iterable))
-    itr = iter(iterable)
     pairs = []
-    for i, v in enumerate(itr):
-        if v == max(iterable):
-            pairs.append([v,max_val])
-            if  pairs[-1][1]-pairs[-1][0]< stepsize-1:
-                """
-                if the very last tuple would return too small of a span,
-                    make the penultimate span just a little bit larger
-                """
-                ef = pairs[-1][1]
-                sr = pairs[-2][0]
-                del pairs[-1]
-                del pairs[-1]
-                pairs.append([sr,ef])
-            break
-        else:
-            pairs.append([iterable[i], iterable[i+1]-1])
+    if degenerate:
+        width = kwargs.pop('width', 0)
+        initial = min_val
+        final = initial+width
+        steps = int((max_val-width)/stepsize)
+        a = [[min_val+stepsize*i, width+stepsize*i] for i in range(steps)]
+        a[-1]=[a[-1][0], max_val]
+        pairs=a
     else:
-        # if the above for loop executes fully (exhaustive iteration)
-        # then the v==max(iterable) was never reached. If that happened
-        # then the loop stopped running at the continue statement, meaning
-        # the iterable passed was len < 1. Meaning only min-max is needed.
-        pairs = [[min_val, max_val]]
+        itr = iter(iterable)
+        for i, v in enumerate(itr):
+            if v == max(iterable):
+                pairs.append([v,max_val])
+                if  pairs[-1][1]-pairs[-1][0]< stepsize-1:
+                    """
+                    if the very last tuple would return too small of a span,
+                        make the penultimate span just a little bit larger
+                    """
+                    ef = pairs[-1][1]
+                    sr = pairs[-2][0]
+                    del pairs[-1]
+                    del pairs[-1]
+                    pairs.append([sr,ef])
+                break
+            else:
+                pairs.append([iterable[i], iterable[i+1]-1])
+        else:
+            # if the above for loop executes fully (exhaustive iteration)
+            # then the v==max(iterable) was never reached. If that happened
+            # then the loop stopped running at the continue statement, meaning
+            # the iterable passed was len < 1. Meaning only min-max is needed.
+            pairs = [[min_val, max_val]]
     return pairs
 
-def parsefile(file, stepsize=1500, T="Temp (K)", B="B Field (T)", y="P124A (V)", autocut=True):
+def getNumber(name):
+    a = name.split('-')
+    b = a[-1]
+    c = b.split('.')
+    print(c[0], name)
+    return c[0]
+
+def parsefile(file, s, width=1400, T="Temp (K)", B="B Field (T)", y="P124A (V)", autocut=True):
+    correction = s[int(getNumber(file))]
     xlim = 5
     with open(file, 'r') as f:
         df = pandas.read_csv(f, delimiter=',')
-    splits_for_df = numpy.arange(0,len(df[B])-1, stepsize)
-    range_for_df = makeSpan(splits_for_df, len(df[B])-1, stepsize)
+    df[y]=df[y].to_numpy()*correction
+    splits_for_df = numpy.arange(0,len(df[B])-1, width)
+    #range_for_df = makeSpan(splits_for_df, len(df[B])-1, 50,degenerate=True,width=1000)
+    range_for_df = makeSpan(splits_for_df, len(df[B])-1, width)
+    print(range_for_df)
     if autocut:
         with Pool(processes=3) as pool:
             result_objs = [pool.apply_async(auto_analyze, args=(i,df,idx,T,B,y,file)) for idx, i in enumerate(range_for_df)]
@@ -93,7 +125,7 @@ def uselect(df,T,B,y,file):
 
 
 def analyze(df,idx,T,B,y,fn,cut,other):
-    fig, ax = plt.subplots(nrows=3)
+    fig, ax = plt.subplots(nrows=5,figsize=(8.5*7/11,11*7/11))
     ax[0].scatter(other[B], other[y], label=y+" Cut "+str(idx),color="blue", s=3)
     ax[0].scatter(cut[B], cut[y], label="Data Subsection", color="red", s=3)
     ax[0].set_ylim(min(df[y]), max(df[y]))
@@ -105,21 +137,39 @@ def analyze(df,idx,T,B,y,fn,cut,other):
 
     sr = 5000
     f = DFFT(cut[y])
+
+    g = numpy.real(iDFFT(f))
+    ax[2].scatter(cut[B], g, s=3, label="Double fourier transofrm")
+    ax[3].scatter(cut[B], cut[y].to_numpy()-g, s=3, label="Diff Actual v. Fourier Tform")
+
+
     N = len(f)
     n = numpy.arange(N)
     T = N/sr 
     freq = n/T
-    ax[2].set_xlabel('Freq (1/Tesla)')
-    ax[2].stem(freq, abs(f),  label="FFT Frequencies", markerfmt=" ")
-    ax[2].set_ylim(min(abs(f)), max(abs(f)))
-    ax[2].set_xscale('log')
+    ax[4].set_xlabel('Freq (1/Tesla)')
+    ax[4].stem(freq, abs(f),  label="FFT Frequencies", markerfmt=" ")
+
+    cc = pandas.DataFrame({B:freq, y:abs(f)})
+    xm, xM = 1000, 1500
+    ax[4].plot([xm,xM],[0, max(cc[y])], color='red', label="Where our signal should be")
+    ax[4].plot([xM,xm],[0, max(cc[y])], color='red')
+    cc = cc[cc[B]>xm]
+    cc = cc[cc[B]<xM]
+    ym, yM = min(cc[y]), max(cc[y])
+
+    #ym, yM = min(abs(f[2:-2])), max(abs(f[2:-2]))
+    ax[4].set_xscale('log')
+    #ax[4].set_xlim(xm,xM)
+    ax[4].set_ylim(ym,yM)
 
     for i in ax:
         i.grid(True)
         i.legend(loc="best")
     
     fig.suptitle("".join(list(fn)[:-4])+" Cut "+str(idx))
-    plt.savefig("dump/"+"".join(list(fn)[:-4])+" Cut "+str(idx), dpi=200)
+    plt.tight_layout()
+    plt.savefig("dump/"+"".join(list(fn)[:-4])+"-Cut-"+"%5.5i"% (idx), dpi=150)
     plt.close('all')
     print("Completed", idx, fn)
 
@@ -130,40 +180,40 @@ def DFFT(x):
     e = numpy.exp(-2j*n*numpy.pi*nt/N)
     return numpy.dot(e,x)
 
-
+def iDFFT(x):
+    N = len(x)
+    n = numpy.arange(N)
+    nt = n.reshape((N,1))
+    e = 1/N*numpy.exp(2j*n*nt*numpy.pi/N)
+    return numpy.dot(e,x)
     
 
 def x(y):
     return y**2
+
 def sin(y):
     return 1/32*numpy.sin(numpy.pi * 2*y/(0.00058))
 
-def main(filenames):
+def main(filenames, s):
     result_objects = []
-    d = input("Y for Auto, N for manual")
+    d = input("Y for Auto, N for manual: ")
     if d.upper()=="Y":
         for i in filenames:
-            parsefile(i)
+            parsefile(i, s)
     else:
         for i in filenames:
-            parsefile(i, autocut=False)
+            parsefile(i, s,autocut=False)
     exit()
-    """cpus = int(3)
-    with Pool(processes=cpus) as pool:#, initializer=start_process) 
-        result_objects.append([pool.apply_async(parsefile, i) for i in filenames])
-    pool.join()
-    pool.close()"""
-def main2(filenames):
-    """
-    s'pose now I want to take a file and select carefulyl where i want to do my analysis.
-    def main2():
-        open file
-        get data
-        plot data
-        user selects data
-        cut data
-        analyze data
-    """
     
-f = ["Aug26-Rings2-"+str(i)+".dat" for i in range(8,9)]
-main(f)
+sensitivity = {1:[500*10**-6], 2:[500*10**-6], 3:[50*10**-3],
+               4:[50*10**-6], 5:[10**-6], 6:[10**-6], 
+               7:[500*10**-6], 8:[500*10**-6], 9:[1/500],
+               10:[5*10**-6]}
+sensitivity = {i:[1] for i in range(11)}
+sensitivity[9] = [1/500]
+with open('s.csv', 'w') as f:
+    pandas.DataFrame(sensitivity).to_csv(f)
+
+f = ["Aug26-Rings2-"+str(i)+".dat" for i in range(1,11)]
+#f=["Aug26-Rings2-10.dat"]
+main(f,sensitivity)
