@@ -46,8 +46,15 @@ def parsefile(file, stepsize=1500, T="Temp (K)", B="B Field (T)", y="P124A (V)",
     splits_for_df = numpy.arange(0,len(df[B])-1, stepsize)
     range_for_df = makeSpan(splits_for_df, len(df[B])-1, stepsize)
     if autocut:
-        for idx, i in enumerate(range_for_df):
+        with Pool(processes=3) as pool:
+            result_objs = [pool.apply_async(auto_analyze, args=(i,df,idx,T,B,y,file)) for idx, i in enumerate(range_for_df)]
+            pool.close()
+            pool.join()
+        """
+        for idx,i in enumerate(range_for_df):
             auto_analyze(i, df,idx,T,B,y, file)
+        """
+        results = [r.get() for r in result_objs]
     else:
         uselect(df, T,B,y, file)
     return True
@@ -56,6 +63,7 @@ def auto_analyze(i,df,idx,T,B,y, file):
     cut = df.iloc[i[0]:i[1]]
     other = pandas.concat([df.iloc[:i[0]], df.iloc[i[1]:]])
     analyze(df,idx,T,B,y,file, cut,other)
+    return True
 
 def uselect(df,T,B,y,file):
     b=""
