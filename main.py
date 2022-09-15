@@ -79,7 +79,7 @@ def parsefile(file, s, width=1400, T="Temp (K)", B="B Field (T)", y="P124A (V)",
     print(range_for_df)
     if autocut:
         with Pool(processes=3) as pool:
-            result_objs = [pool.apply_async(auto_analyze, args=(i,df,idx,T,B,y,file)) for idx, i in enumerate(range_for_df)]
+            result_objs = [pool.apply_async(auto_analyze, args=(i,df,idx,T,B,y,file,s)) for idx, i in enumerate(range_for_df)]
             pool.close()
             pool.join()
         """
@@ -88,16 +88,16 @@ def parsefile(file, s, width=1400, T="Temp (K)", B="B Field (T)", y="P124A (V)",
         """
         results = [r.get() for r in result_objs]
     else:
-        uselect(df, T,B,y, file)
+        uselect(df, T,B,y, file,s)
     return True
 
-def auto_analyze(i,df,idx,T,B,y, file):
+def auto_analyze(i,df,idx,T,B,y, file,s):
     cut = df.iloc[i[0]:i[1]]
     other = pandas.concat([df.iloc[:i[0]], df.iloc[i[1]:]])
-    analyze(df,idx,T,B,y,file, cut,other)
+    analyze(df,idx,T,B,y,file, cut,other,s)
     return True
 
-def uselect(df,T,B,y,file):
+def uselect(df,T,B,y,file,s):
     b=""
     while b !='y':
         plt.close('all')
@@ -121,10 +121,9 @@ def uselect(df,T,B,y,file):
         plt.show()
         plt.close('all')
         b = input("Ok? (y/n): ")
-    analyze(df,0,T,B,y,file,cut,other)
+    analyze(df,0,T,B,y,file,cut,other,s)
 
-
-def analyze(df,idx,T,B,y,fn,cut,other):
+def anY1(df,idx,T,B,y,fn,cut,other,s):
     fig, ax = plt.subplots(nrows=5,figsize=(8.5*7/11,11*7/11))
     ax[0].scatter(other[B], other[y], label=y+" Cut "+str(idx),color="blue", s=3)
     ax[0].scatter(cut[B], cut[y], label="Data Subsection", color="red", s=3)
@@ -160,8 +159,9 @@ def analyze(df,idx,T,B,y,fn,cut,other):
 
     #ym, yM = min(abs(f[2:-2])), max(abs(f[2:-2]))
     ax[4].set_xscale('log')
+    ax[4].set_yscale('log')
     #ax[4].set_xlim(xm,xM)
-    ax[4].set_ylim(ym,yM)
+    #ax[4].set_ylim(ym,yM)
 
     for i in ax:
         i.grid(True)
@@ -172,6 +172,68 @@ def analyze(df,idx,T,B,y,fn,cut,other):
     plt.savefig("dump/"+"".join(list(fn)[:-4])+"-Cut-"+"%5.5i"% (idx), dpi=150)
     plt.close('all')
     print("Completed", idx, fn)
+
+def anYN(df,idx,T,B,y,fn,cut,other,s, others_ys=["SR830 1 X (V)", "SR830 1 Y (V)"]):
+    others_ys.append(y)
+        fig, ax = plt.subplots(nrows=5,ncols=len(others_ys),figsize=(8.5*7/11*len(others_ys),11*7/11))
+    for column, i in others_ys:
+        ax[0,column].scatter(other[B], other[y], label=y+" Cut "+str(idx),color="blue", s=3)
+        ax[0,column].scatter(cut[B], cut[y], label="Data Subsection", color="red", s=3)
+        ax[0,column].set_ylim(min(df[y]), max(df[y]))
+        ax[0,column].set_xlim(min(df[B]), max(df[B]))
+        
+        ax[1,column].scatter(cut[B], cut[y], label="Cut", color="red", s=3)
+        ax[1,column].set_ylim(min(cut[y]), max(cut[y]))
+        ax[1,column].set_xlim(min(cut[B]), max(cut[B]))
+    
+        sr = 5000
+        f = DFFT(cut[y])
+    
+        g = numpy.real(iDFFT(f))
+        ax[2,column].scatter(cut[B], g, s=3, label="Double fourier transofrm")
+        ax[3,column].scatter(cut[B], cut[y].to_numpy()-g, s=3, label="Diff Actual v. Fourier Tform")
+    
+    
+        N = len(f)
+        n = numpy.arange(N)
+        T = N/sr 
+        freq = n/T
+        ax[4,column].set_xlabel('Freq (1/Tesla)')
+        ax[4,column].stem(freq, abs(f),  label="FFT Frequencies", markerfmt=" ")
+    
+        cc = pandas.DataFrame({B:freq, y:abs(f)})
+        xm, xM = 1000, 1500
+        ax[4,column].plot([xm,xM],[0, max(cc[y])], color='red', label="Where our signal should be")
+        ax[4,column].plot([xM,xm],[0, max(cc[y])], color='red')
+        cc = cc[cc[B]>xm]
+        cc = cc[cc[B]<xM]
+        ym, yM = min(cc[y]), max(cc[y])
+    
+        #ym, yM = min(abs(f[2:-2])), max(abs(f[2:-2]))
+        ax[4,column].set_xscale('log')
+        ax[4,column].set_yscale('log')
+        #ax[4].set_xlim(xm,xM)
+        #ax[4].set_ylim(ym,yM)
+
+        for i in ax:
+            for j in i:
+                j.grid(True)
+                j.legend(loc="best")
+    
+    fig.suptitle("".join(list(fn)[:-4])+" Cut "+str(idx))
+    plt.tight_layout()
+    plt.savefig("dump/"+"".join(list(fn)[:-4])+"-Cut-"+"%5.5i"% (idx), dpi=150)
+    plt.close('all')
+    print("Completed", idx, fn)
+    pass
+
+
+def analyze(df,idx,T,B,y,fn,cut,other,s):
+    num = int(getNumber(fn))
+    if len(s[num]) == 1:
+        anY1(df,idx,T,B,y,fn,cut,other,s)
+    else:
+        anyYN(df,idx,T,B,y,fn,cut,other,s)
 
 def DFFT(x):
     N = len(x)
