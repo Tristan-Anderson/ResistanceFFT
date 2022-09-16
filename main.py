@@ -78,8 +78,10 @@ def parsefile(file, s, width=1400, T="Temp (K)", B="B Field (T)", y="P124A (V)",
     splits_for_df = numpy.arange(0,len(df[B])-1, width)
     range_for_df = makeSpan(splits_for_df, len(df[B])-1, 50,degenerate=True,width=1600)
     #range_for_df = makeSpan(splits_for_df, len(df[B])-1, width)
+    p = multiprocessing.cpu_count()
+    avp = int(p*.9)
     if autocut:
-        with Pool(processes=3) as pool:
+        with Pool(processes=avp) as pool:
             result_objs = [pool.apply_async(auto_analyze, args=(i,df,idx,T,B,y,file,s)) for idx, i in enumerate(range_for_df)]
             pool.close()
             pool.join()
