@@ -62,6 +62,8 @@ def makeSpan(iterable, max_val, stepsize, **kwargs):
     return pairs
 
 def getNumber(name):
+    # Grabs a number from the filename that follows the lab's
+    #   file naming convention
     a = name.split('-')
     b = a[-1]
     c = b.split('.')
@@ -69,32 +71,53 @@ def getNumber(name):
     return c[0]
 
 def parsefile(file, s, width=1400, T="Temp (K)", B="B Field (T)", y="P124A (V)", autocut=True):
+    """
+        Reads the file, and takes a pre-ordained slicing routine
+            defined by makeSpan and it passes raw data, and 
+            slice information to one of the analysis routines 
+    """
+    # The correction factor is able to scale a specific
+    #   stream of data by a constant. This is used ONLY
+    #   when, during experiment, we don't enter the 
+    #   lock-in amplifier's sensitivity, properly into the
+    #   LABView program.
     correction = s[int(getNumber(file))]
-    xlim = 5
+    
     with open(file, 'r') as f:
         df = pandas.read_csv(f, delimiter=',')
     if type(correction) ==float:
         df[y]=df[y].to_numpy()*correction
+    # Define split-points for the DF based on the index
+    #   Split points correspond to the nth datapoint.
     splits_for_df = numpy.arange(0,len(df[B])-1, width)
-    range_for_df = makeSpan(splits_for_df, len(df[B])-1, 50,degenerate=True,width=1600)
-    #range_for_df = makeSpan(splits_for_df, len(df[B])-1, width)
+    
+    # range_for_df is a nested-list [[start1, end1], ...]
+    #   the difference between endX and start(X+1) is 1.
+    #   No data is "sliced out" of analysis.
+    #range_for_df = makeSpan(splits_for_df, len(df[B])-1, 50,degenerate=True,width=width)
+    range_for_df = makeSpan(splits_for_df, len(df[B])-1, len(df[B])-1)
+
+    # Grab the number of available workers
     p = multiprocessing.cpu_count()
+    # Make sure we leave 10% overhead so that the computer
+    #   Doesn't BSOD on us.
     avp = int(p*.9)
     if autocut:
+        # If the user wants an automated analysis: do just that
         with Pool(processes=avp) as pool:
             result_objs = [pool.apply_async(auto_analyze, args=(i,df,idx,T,B,y,file,s)) for idx, i in enumerate(range_for_df)]
             pool.close()
             pool.join()
-        """
-        for idx,i in enumerate(range_for_df):
-            auto_analyze(i, df,idx,T,B,y, file)
-        """
         results = [r.get() for r in result_objs]
     else:
+        # Alternatively, here's what happens when the user
+        #   wants to take control.
         uselect(df, T,B,y, file,s)
     return True
 
 def auto_analyze(i,df,idx,T,B,y, file,s):
+    # Cut the dataframe according to the ranges defined
+    #   In the caller.
     cut = df.iloc[i[0]:i[1]]
     other = pandas.concat([df.iloc[:i[0]], df.iloc[i[1]:]])
     analyze(df,idx,T,B,y,file, cut,other,s)
@@ -103,12 +126,14 @@ def auto_analyze(i,df,idx,T,B,y, file,s):
 def uselect(df,T,B,y,file,s):
     b=""
     while b !='y':
+        # Untill the user is satisfied, allow them to select
+        #       Data that they need.
         plt.close('all')
         plt.plot(df[B], df[y], label="Data")
         plt.grid(True)
         plt.legend(loc='best')
     
-        coords = plt.ginput(2)
+        coords = plt.ginput(2,timeout=0)
         xax = [c[0] for c in coords]
         cut = df[(df[B]<max(xax)) & (df[B]>min(xax))]
         other = df[df[B]>max(xax)]
@@ -123,11 +148,28 @@ def uselect(df,T,B,y,file,s):
             i.legend(loc='best')
         plt.show()
         plt.close('all')
+        print("Window Width: ",max(xax)-min(xax))
         b = input("Ok? (y/n): ")
     analyze(df,0,T,B,y,file,cut,other,s)
 
 def anY1(df,idx,T,B,y,fn,cut,other,s):
-    fig, ax = plt.subplots(nrows=5,figsize=(8.5*7/11,11*7/11))
+    """
+    anY1: Analyze Y1. or 1 stream of data.
+    df: Pandas object
+    idx: Slice number
+    T: What's the temperature in the file
+    B: What's the name of the B-Field in the file
+    y: what's the y-data that we should look for
+    fn: what's the file name being analyzed
+    cut: The data that's in the region we're going to FFT
+    other: The data that's not cut.
+    s: Sensitivity dictionary that we can use to scale
+            our data by a constant incase we fail to record
+            something prior to recording a run of data.
+
+    """
+    #fig, ax = plt.subplots(nrows=5,figsize=(8.5*7/11,11*7/11))
+    fig, ax = plt.subplots(ncols=2,figsize=(11,4.25))
     ax[0].scatter(other[B], other[y], label=y+" Cut "+str(idx),color="blue", s=3)
     ax[0].scatter(cut[B], cut[y], label="Data Subsection", color="red", s=3)
     ax[0].set_ylim(min(df[y]), max(df[y]))
@@ -141,7 +183,9 @@ def anY1(df,idx,T,B,y,fn,cut,other,s):
     f = DFFT(cut[y])
 
     g = numpy.real(iDFFT(f))
-    ax[2].scatter(cut[B], g, s=3, label="Double fourier transofrm")
+    #ax[1].set_xlabel('Tesla')
+
+    """ax[2].scatter(cut[B], g, s=3, label="Double fourier transofrm")
     ax[3].scatter(cut[B], cut[y].to_numpy()-g, s=3, label="Diff Actual v. Fourier Tform")
 
 
@@ -164,11 +208,12 @@ def anY1(df,idx,T,B,y,fn,cut,other,s):
     ax[4].set_xscale('log')
     ax[4].set_yscale('log')
     #ax[4].set_xlim(xm,xM)
-    #ax[4].set_ylim(ym,yM)
+    #ax[4].set_ylim(ym,yM)"""
 
     for i in ax:
         i.grid(True)
         i.legend(loc="best")
+        i.set_xlabel("Tesla")
     
     fig.suptitle("".join(list(fn)[:-4])+" Cut "+str(idx))
     plt.tight_layout()
@@ -259,6 +304,52 @@ def x(y):
 def sin(y):
     return 1/32*numpy.sin(numpy.pi * 2*y/(0.00058))
 
+
+def periodicityParseFile(file, s, width=1400, T="Temp (K)", B="B Field (T)", y="P124A (V)", autocut=True):
+    """
+        Reads the file, and takes a pre-ordained slicing routine
+            defined by makeSpan and it passes raw data, and 
+            slice information to one of the analysis routines 
+    """
+    # The correction factor is able to scale a specific
+    #   stream of data by a constant. This is used ONLY
+    #   when, during experiment, we don't enter the 
+    #   lock-in amplifier's sensitivity, properly into the
+    #   LABView program.
+    correction = s[int(getNumber(file))]
+    
+    with open(file, 'r') as f:
+        df = pandas.read_csv(f, delimiter=',')
+    if type(correction) ==float:
+        df[y]=df[y].to_numpy()*correction
+    # Define split-points for the DF based on the index
+    #   Split points correspond to the nth datapoint.
+    splits_for_df = numpy.arange(0,len(df[B])-1, width)
+    
+    # range_for_df is a nested-list [[start1, end1], ...]
+    #   the difference between endX and start(X+1) is 1.
+    #   No data is "sliced out" of analysis.
+    #range_for_df = makeSpan(splits_for_df, len(df[B])-1, 50,degenerate=True,width=width)
+    range_for_df = makeSpan(splits_for_df, len(df[B])-1, len(df[B])-1)
+
+    # Grab the number of available workers
+    p = multiprocessing.cpu_count()
+    # Make sure we leave 10% overhead so that the computer
+    #   Doesn't BSOD on us.
+    avp = int(p*.9)
+
+    for idx,i in enumerate(range_for_df):
+        uselect(df, T,B,y, file,s)
+
+    
+    return True
+
+def analyzePeriodicity(filenames,s):
+    for i in filenames:
+            periodicityParseFile(i, s,autocut=False)
+
+
+
 def main(filenames, s):
     result_objects = []
     d = input("Y for Auto, N for manual: ")
@@ -278,5 +369,7 @@ sensitivity = {i:[1] for i in range(11)}
 sensitivity[9] = [1/500]
 sensitivity[10] = [1,1]
 
-f = ["Aug26-Rings2-"+str(i)+".dat" for i in range(1,12)]
-main(f,sensitivity)
+#f = ["Aug26-Rings2-"+str(i)+".dat" for i in range(1,12)]
+f = ["Aug26-Rings2-10.dat"]
+#main(f,sensitivity)
+analyzePeriodicity(f,sensitivity)

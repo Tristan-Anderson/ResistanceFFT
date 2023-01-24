@@ -36,4 +36,5 @@ def main(f):
     plt.show()
 
 f = "fixed.dat"
+f = "Aug26-Rings2-4.dat"
 main(f)
