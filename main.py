@@ -54,7 +54,7 @@ def makeSpan(iterable, max_val, stepsize, **kwargs):
             else:
                 pairs.append([iterable[i], iterable[i+1]-1])
         else:
-            # if the above for loop executes fully (exhaustive iteration)
+            # if the above for loop executes fully
             # then the v==max(iterable) was never reached. If that happened
             # then the loop stopped running at the continue statement, meaning
             # the iterable passed was len < 1. Meaning only min-max is needed.
@@ -70,11 +70,10 @@ def getNumber(name):
     print(c[0], name)
     return c[0]
 
-def parsefile(file, s, width=1400, T="Temp (K)", B="B Field (T)", y="P124A (V)", autocut=True):
+def parsefile(file, s, y="P124A (V)"):
     """
-        Reads the file, and takes a pre-ordained slicing routine
-            defined by makeSpan and it passes raw data, and 
-            slice information to one of the analysis routines 
+        Reads the file, corrects data if necessary (sensitivity scales everything such 
+        that the final reported value is in Volts.)
     """
     # The correction factor is able to scale a specific
     #   stream of data by a constant. This is used ONLY
@@ -87,6 +86,19 @@ def parsefile(file, s, width=1400, T="Temp (K)", B="B Field (T)", y="P124A (V)",
         df = pandas.read_csv(f, delimiter=',')
     if type(correction) ==float:
         df[y]=df[y].to_numpy()*correction
+
+    return df
+
+def splitfile(*args,**kwargs):
+    df= args[0]
+
+    intervals = kwargs.get("intervals",3)
+    B=kwargs.get('B',"B Field (T)")
+    width=kwargs.get("width", int(len(df[B])/intervals))
+    degenerate=kwargs.get('degenerate',False)
+    if degenerate:
+        stepsize=kwargs.get('stepsize',1)
+
     # Define split-points for the DF based on the index
     #   Split points correspond to the nth datapoint.
     splits_for_df = numpy.arange(0,len(df[B])-1, width)
@@ -94,34 +106,12 @@ def parsefile(file, s, width=1400, T="Temp (K)", B="B Field (T)", y="P124A (V)",
     # range_for_df is a nested-list [[start1, end1], ...]
     #   the difference between endX and start(X+1) is 1.
     #   No data is "sliced out" of analysis.
-    #range_for_df = makeSpan(splits_for_df, len(df[B])-1, 50,degenerate=True,width=width)
-    range_for_df = makeSpan(splits_for_df, len(df[B])-1, len(df[B])-1)
-
-    # Grab the number of available workers
-    p = multiprocessing.cpu_count()
-    # Make sure we leave 10% overhead so that the computer
-    #   Doesn't BSOD on us.
-    avp = int(p*.9)
-    if autocut:
-        # If the user wants an automated analysis: do just that
-        with Pool(processes=avp) as pool:
-            result_objs = [pool.apply_async(auto_analyze, args=(i,df,idx,T,B,y,file,s)) for idx, i in enumerate(range_for_df)]
-            pool.close()
-            pool.join()
-        results = [r.get() for r in result_objs]
+    if degenerate:
+        range_for_df = makeSpan(splits_for_df, len(df[B])-1, 50,degenerate=degenerate,width=width)
     else:
-        # Alternatively, here's what happens when the user
-        #   wants to take control.
-        uselect(df, T,B,y, file,s)
-    return True
+        range_for_df = makeSpan(splits_for_df, len(df[B])-1, len(df[B])-1)
 
-def auto_analyze(i,df,idx,T,B,y, file,s):
-    # Cut the dataframe according to the ranges defined
-    #   In the caller.
-    cut = df.iloc[i[0]:i[1]]
-    other = pandas.concat([df.iloc[:i[0]], df.iloc[i[1]:]])
-    analyze(df,idx,T,B,y,file, cut,other,s)
-    return True
+    return splits_for_df,range_for_df
 
 def uselect(df,T,B,y,file,s):
     b=""
@@ -133,7 +123,7 @@ def uselect(df,T,B,y,file,s):
         plt.grid(True)
         plt.legend(loc='best')
     
-        coords = plt.ginput(2,timeout=0)
+        coords = plt.ginput(2)
         xax = [c[0] for c in coords]
         cut = df[(df[B]<max(xax)) & (df[B]>min(xax))]
         other = df[df[B]>max(xax)]
@@ -275,80 +265,12 @@ def anYN(df,idx,T,B,yn,fn,cut,other,s, others_ys=["SR830 1 X (V)"]):
     plt.savefig("dump/"+"".join(list(fn)[:-4])+"-Cut-"+"%5.5i"% (idx), dpi=dpi)
     plt.close('all')
 
-
 def analyze(df,idx,T,B,y,fn,cut,other,s):
     num = int(getNumber(fn))
     if len(s[num]) == 1:
         anY1(df,idx,T,B,y,fn,cut,other,s)
     else:
         anYN(df,idx,T,B,y,fn,cut,other,s)
-
-def DFFT(x):
-    N = len(x)
-    n = numpy.arange(N)
-    nt = n.reshape((N,1))
-    e = numpy.exp(-2j*n*numpy.pi*nt/N)
-    return numpy.dot(e,x)
-
-def iDFFT(x):
-    N = len(x)
-    n = numpy.arange(N)
-    nt = n.reshape((N,1))
-    e = 1/N*numpy.exp(2j*n*nt*numpy.pi/N)
-    return numpy.dot(e,x)
-    
-
-def x(y):
-    return y**2
-
-def sin(y):
-    return 1/32*numpy.sin(numpy.pi * 2*y/(0.00058))
-
-
-def periodicityParseFile(file, s, width=1400, T="Temp (K)", B="B Field (T)", y="P124A (V)", autocut=True):
-    """
-        Reads the file, and takes a pre-ordained slicing routine
-            defined by makeSpan and it passes raw data, and 
-            slice information to one of the analysis routines 
-    """
-    # The correction factor is able to scale a specific
-    #   stream of data by a constant. This is used ONLY
-    #   when, during experiment, we don't enter the 
-    #   lock-in amplifier's sensitivity, properly into the
-    #   LABView program.
-    correction = s[int(getNumber(file))]
-    
-    with open(file, 'r') as f:
-        df = pandas.read_csv(f, delimiter=',')
-    if type(correction) ==float:
-        df[y]=df[y].to_numpy()*correction
-    # Define split-points for the DF based on the index
-    #   Split points correspond to the nth datapoint.
-    splits_for_df = numpy.arange(0,len(df[B])-1, width)
-    
-    # range_for_df is a nested-list [[start1, end1], ...]
-    #   the difference between endX and start(X+1) is 1.
-    #   No data is "sliced out" of analysis.
-    #range_for_df = makeSpan(splits_for_df, len(df[B])-1, 50,degenerate=True,width=width)
-    range_for_df = makeSpan(splits_for_df, len(df[B])-1, len(df[B])-1)
-
-    # Grab the number of available workers
-    p = multiprocessing.cpu_count()
-    # Make sure we leave 10% overhead so that the computer
-    #   Doesn't BSOD on us.
-    avp = int(p*.9)
-
-    for idx,i in enumerate(range_for_df):
-        uselect(df, T,B,y, file,s)
-
-    
-    return True
-
-def analyzePeriodicity(filenames,s):
-    for i in filenames:
-            periodicityParseFile(i, s,autocut=False)
-
-
 
 def main(filenames, s):
     result_objects = []
@@ -369,7 +291,52 @@ sensitivity = {i:[1] for i in range(11)}
 sensitivity[9] = [1/500]
 sensitivity[10] = [1,1]
 
+
+def abOscillation(filenames,s, **kwargs):
+    recall
+
+    B=kwargs.get('B',"B Field (T)")
+    subwindowWidth=kwargs.get("subwindowWidth",5E-4)
+    for i in filenames:
+        df = parsefile(i,s)
+        # nondegenerate
+        splitpoints, windows = splitfile(df)
+
+        print("window indecies:",windows)
+
+        #Find appropriate window subdivision (~5mT=5E-4)
+        xax=df[B]
+        dxax_NaN = xax.diff().to_numpy()
+        dxax = dxax_NaN[~numpy.isnan(dxax_NaN)]
+        b_stepsize = abs(dxax.mean())
+        print(b_stepsize, (max(xax)-min(xax))/(len(xax)))
+        stepsPerSubWindow = numpy.ceil(subwindowWidth/b_stepsize)
+        stepsPerGauss = numpy.ceil(1E-5/b_stepsize)
+
+
+        for idx, w in enumerate(windows):
+            makeSpan(w, max(w),stepsPerSubWindow,degenerate=True)
+
+        
+
 #f = ["Aug26-Rings2-"+str(i)+".dat" for i in range(1,12)]
-f = ["Aug26-Rings2-10.dat"]
+f = ["Aug26-Rings2-2.dat"]
 #main(f,sensitivity)
-analyzePeriodicity(f,sensitivity)
+abOscillation(f,sensitivity)
+
+
+"""
+WHAT:  Analysis will use non-degenerate window-shifting, then subdivide each window into non-degenerate spans, of which 
+            users will manually click on peaks to identify AB oscillations
+
+HOW:
+    1) Look at overall data trends.
+    2) Elect number of windows (3) should do it -> but this is to be generalized.
+    3) Fit subtract windows. -> keep track of fit paramaters per window.
+
+
+    Window shifting:
+            -> already done in makeSpan.
+    Subdivide window:
+            -> Perhaps re-do it in
+"""
