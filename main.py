@@ -2,6 +2,7 @@ import pandas, numpy
 import matplotlib.pyplot as plt
 import multiprocessing
 from multiprocessing import Pool
+from scipy.optimize import curve_fit as fit
 import matplotlib
 font = {'size'   : 8,
         "family":'serif'}
@@ -10,6 +11,16 @@ matplotlib.rc('font', **font)
 plt.rcParams.update({
         "text.usetex": True})
 
+fig_size_x, fig_size_y=8,8
+
+def Sin(x, a,b,c,d):
+    return a*numpy.sin(b*x-c)+d
+
+def ThirdOrder(x, a,b,c,d):
+    return a*x**3+b*x**2+c*x+d
+
+def SecondOrder(x, a,b,c):
+    return a*x**2+b*x+c
 
 def MakeSteppedSpan(iterable, **kwargs):
     """
@@ -256,8 +267,123 @@ def anYN(df,idx,T,B,yn,fn,cut,other,s, others_ys=["SR830 1 X (V)"]):
     plt.savefig("dump/"+"".join(list(fn)[:-4])+"-Cut-"+"%5.5i"% (idx), dpi=dpi)
     plt.close('all')
 
-def StepWiseAnalysis(df,subwindows, fnd):
-    print(subwindows)
+def Analyze():
+    pass
+
+
+def gff(df, function, **kwargs):
+    #  https://github.com/Tristan-Anderson/Slifer_Lab_NMR_Toolsuite in NMR_Analyzer.py
+    """
+    Generalized Fitting Function
+
+
+    """
+    def get_function(f_name,xdata,var):
+        if f_name == "Sin":
+            yfit = Sin(xdata, var[0], var[1], var[2], var[3])
+
+        elif f_name == "ThirdOrder":
+            yfit = ThirdOrder(xdata, var[0], var[1], var[2], var[3])
+
+        elif f_name == "SecondOrder":
+            yfit = SecondOrder(
+                xdata, var[0], var[1], var[2])
+        
+        return yfit
+
+    # Get kw arguments
+    # Sets which Y to evaluate
+    y = kwargs.pop('y', "P124A (V)")
+
+    # Sets which X to evaluage
+    x = kwargs.pop('x', "B Field (T)")
+
+    # Toggles saving the figure
+    savefit = kwargs.pop('savefit', False)
+
+    # If the above is toggled, the file needs a name
+    filename = kwargs.pop('filename', 'UNNAMED_GRAPH')
+
+    #automated?
+    automated = kwargs.pop('automated', False)
+
+    # selectregion?
+    selectregion = kwargs.pop('selectregion', True)
+
+
+    # Sets the window for data
+    xmin = kwargs.pop('xmin', None)
+    xmax = kwargs.pop('xmax', None)
+
+    cut_data = pandas.DataFrame()
+    if selectregion:
+        fig, ax = plt.subplots(figsize=(fig_size_x, fig_size_y))
+        ax.scatter(df[x],df[y],label=y,color='blue')
+        ax.legend(loc='best')
+        tuples = plt.ginput(2,timeout=False)        
+        xlims = numpy.asarray([c[0] for c in tuples])
+        cut_data = df[(df[x] > xlims[0]) & (df[x] < xlims[1])]
+
+    elif xmin is not None and xmax is not None:
+        cut_data = df[(df.x > xmin) & (df.x < xmax)]
+
+    else:
+        fit_data = df
+
+    #print(df)
+
+    fit_data = df.drop(cut_data.index.to_numpy())
+
+    #print(fit_data)
+
+
+    xdata = fit_data[x].values
+    ydata = fit_data[y].values
+
+        
+    var, _ = fit(eval(function), xdata, ydata)
+    # Fit that stuff
+    fitname=y+" "+function+" fit"
+    fitsub=fitname+" subtraction"
+
+    df[fitname]=get_function(function, df[x], var)
+    df[fitsub]=df[y]-df[y+" "+function+" fit"]
+
+    fig, ax = plt.subplots(2,figsize=(fig_size_x, fig_size_y))
+
+    ax[0].scatter(df[x],df[y],label='data',color='blue')
+    ax[0].scatter(df[x],df[fitname],label='fit',color="red")
+
+    ax[1].scatter(df[x],df[fitsub],label='fit subtraction',color="black")
+
+    for i in ax:
+        i.grid(True)
+        i.legend(loc="best")
+
+    print("#"*10)
+    print("SELECT PEAKS OF OSCILLATIONS")
+    print("#"*10)
+    
+
+    
+    print(plt.ginput(2))
+
+    
+   
+    return df
+
+
+def StepWiseAnalysis(df,window, subwindows, filename,identifier, selectregion=False):
+    #print(df)
+    df = df.iloc[window[0]:window[1]]
+
+    df = gff(df,"ThirdOrder",selectregion=selectregion)
+
+    for sw in subwindows:
+        s,f=sw[0],sw[1]
+        cut= df.iloc[s:f]
+        
+
     
 def ABOscillation(filenames,s, **kwargs):
     B=kwargs.get('B',"B Field (T)")
@@ -278,7 +404,7 @@ def ABOscillation(filenames,s, **kwargs):
         dxax_NaN = xax.diff().to_numpy()
         dxax = dxax_NaN[~numpy.isnan(dxax_NaN)]
         b_stepsize = abs(dxax.mean())
-        print(b_stepsize, (max(xax)-min(xax))/(len(xax)))
+        #print(b_stepsize, (max(xax)-min(xax))/(len(xax)))
         stepsPerSubWindow = int(numpy.ceil(subwindowWidth/b_stepsize))
         stepsPerGauss = numpy.ceil(1E-5/b_stepsize)
 
@@ -286,10 +412,14 @@ def ABOscillation(filenames,s, **kwargs):
         for idx, w in enumerate(windows):
             
             splits_for_subwindows = numpy.arange(min(w),max(w), stepsPerSubWindow)
-            print(splits_for_subwindows)
+            #print(splits_for_subwindows)
             subwindows = MakeSteppedSpan(splits_for_subwindows, stepsize=int(stepsPerSubWindow/2))
-            StepWiseAnalysis(df, subwindows, i)
+            #StepWiseAnalysis(df, w, subwindows, i,idx)
+            StepWiseAnalysis(df, w, subwindows, i,idx,selectregion=True)
+
             exit()
+
+            
 
 
 sensitivity = {1:[500*10**-6], 2:[500*10**-6], 3:[50*10**-3],
