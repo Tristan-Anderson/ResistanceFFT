@@ -14,7 +14,7 @@ plt.rcParams.update({
 Test the DFFT. Make an x^2 thing with / sin(2pi x/(0.00058)) superimposed. Then test the thing.
 """
 
-def makeSpan(iterable, max_val, stepsize, **kwargs):
+def MakeSpan(iterable, max_val, stepsize, **kwargs):
     """
     takes an iterable and creates a list of lists that contains
     start/end values that by default do not overlap.
@@ -61,7 +61,7 @@ def makeSpan(iterable, max_val, stepsize, **kwargs):
             pairs = [[min_val, max_val]]
     return pairs
 
-def getNumber(name):
+def GetNumber(name):
     # Grabs a number from the filename that follows the lab's
     #   file naming convention
     a = name.split('-')
@@ -70,7 +70,7 @@ def getNumber(name):
     print(c[0], name)
     return c[0]
 
-def parsefile(file, s, y="P124A (V)"):
+def ParseFile(file, s, y="P124A (V)"):
     """
         Reads the file, corrects data if necessary (sensitivity scales everything such 
         that the final reported value is in Volts.)
@@ -80,7 +80,7 @@ def parsefile(file, s, y="P124A (V)"):
     #   when, during experiment, we don't enter the 
     #   lock-in amplifier's sensitivity, properly into the
     #   LABView program.
-    correction = s[int(getNumber(file))]
+    correction = s[int(GetNumber(file))]
     
     with open(file, 'r') as f:
         df = pandas.read_csv(f, delimiter=',')
@@ -89,7 +89,7 @@ def parsefile(file, s, y="P124A (V)"):
 
     return df
 
-def splitfile(*args,**kwargs):
+def SplitFile(*args,**kwargs):
     df= args[0]
 
     intervals = kwargs.get("intervals",3)
@@ -107,13 +107,13 @@ def splitfile(*args,**kwargs):
     #   the difference between endX and start(X+1) is 1.
     #   No data is "sliced out" of analysis.
     if degenerate:
-        range_for_df = makeSpan(splits_for_df, len(df[B])-1, 50,degenerate=degenerate,width=width)
+        range_for_df = MakeSpan(splits_for_df, len(df[B])-1, 50,degenerate=degenerate,width=width)
     else:
-        range_for_df = makeSpan(splits_for_df, len(df[B])-1, len(df[B])-1)
+        range_for_df = MakeSpan(splits_for_df, len(df[B])-1, len(df[B])-1)
 
     return splits_for_df,range_for_df
 
-def uselect(df,T,B,y,file,s):
+def USelect(df,T,B,y,file,s):
     b=""
     while b !='y':
         # Untill the user is satisfied, allow them to select
@@ -140,7 +140,7 @@ def uselect(df,T,B,y,file,s):
         plt.close('all')
         print("Window Width: ",max(xax)-min(xax))
         b = input("Ok? (y/n): ")
-    analyze(df,0,T,B,y,file,cut,other,s)
+    Analyze(df,0,T,B,y,file,cut,other,s)
 
 def anY1(df,idx,T,B,y,fn,cut,other,s):
     """
@@ -150,7 +150,7 @@ def anY1(df,idx,T,B,y,fn,cut,other,s):
     T: What's the temperature in the file
     B: What's the name of the B-Field in the file
     y: what's the y-data that we should look for
-    fn: what's the file name being analyzed
+    fn: what's the file name being Analyzed
     cut: The data that's in the region we're going to FFT
     other: The data that's not cut.
     s: Sensitivity dictionary that we can use to scale
@@ -265,8 +265,8 @@ def anYN(df,idx,T,B,yn,fn,cut,other,s, others_ys=["SR830 1 X (V)"]):
     plt.savefig("dump/"+"".join(list(fn)[:-4])+"-Cut-"+"%5.5i"% (idx), dpi=dpi)
     plt.close('all')
 
-def analyze(df,idx,T,B,y,fn,cut,other,s):
-    num = int(getNumber(fn))
+def Analyze(df,idx,T,B,y,fn,cut,other,s):
+    num = int(GetNumber(fn))
     if len(s[num]) == 1:
         anY1(df,idx,T,B,y,fn,cut,other,s)
     else:
@@ -277,10 +277,10 @@ def main(filenames, s):
     d = input("Y for Auto, N for manual: ")
     if d.upper()=="Y":
         for i in filenames:
-            parsefile(i, s)
+            ParseFile(i, s)
     else:
         for i in filenames:
-            parsefile(i, s,autocut=False)
+            ParseFile(i, s,autocut=False)
     exit()
     
 sensitivity = {1:[500*10**-6], 2:[500*10**-6], 3:[50*10**-3],
@@ -292,15 +292,14 @@ sensitivity[9] = [1/500]
 sensitivity[10] = [1,1]
 
 
-def abOscillation(filenames,s, **kwargs):
-    recall
+def ABOscillation(filenames,s, **kwargs):
 
     B=kwargs.get('B',"B Field (T)")
     subwindowWidth=kwargs.get("subwindowWidth",5E-4)
     for i in filenames:
-        df = parsefile(i,s)
+        df = ParseFile(i,s)
         # nondegenerate
-        splitpoints, windows = splitfile(df)
+        splitpoints, windows = SplitFile(df)
 
         print("window indecies:",windows)
 
@@ -313,16 +312,17 @@ def abOscillation(filenames,s, **kwargs):
         stepsPerSubWindow = numpy.ceil(subwindowWidth/b_stepsize)
         stepsPerGauss = numpy.ceil(1E-5/b_stepsize)
 
-
         for idx, w in enumerate(windows):
-            makeSpan(w, max(w),stepsPerSubWindow,degenerate=True)
+            subwindows = MakeSpan(w, max(w),stepsPerSubWindow,degenerate=True)
+
+            StepWiseAnalysis
 
         
 
 #f = ["Aug26-Rings2-"+str(i)+".dat" for i in range(1,12)]
 f = ["Aug26-Rings2-2.dat"]
 #main(f,sensitivity)
-abOscillation(f,sensitivity)
+ABOscillation(f,sensitivity)
 
 
 """
@@ -334,9 +334,9 @@ HOW:
     2) Elect number of windows (3) should do it -> but this is to be generalized.
     3) Fit subtract windows. -> keep track of fit paramaters per window.
 
-
+d
     Window shifting:
-            -> already done in makeSpan.
+            -> already done in MakeSpan.
     Subdivide window:
             -> Perhaps re-do it in
 """
