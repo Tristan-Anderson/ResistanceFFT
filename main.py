@@ -271,7 +271,7 @@ def Analyze():
     pass
 
 
-def gff(df, function, **kwargs):
+def GFF(df, function, **kwargs):
     #  https://github.com/Tristan-Anderson/Slifer_Lab_NMR_Toolsuite in NMR_Analyzer.py
     """
     Generalized Fitting Function
@@ -347,41 +347,60 @@ def gff(df, function, **kwargs):
     fitsub=fitname+" subtraction"
 
     df[fitname]=get_function(function, df[x], var)
-    df[fitsub]=df[y]-df[y+" "+function+" fit"]
+    df[fitsub]=df[y]-df[fitname]
 
-    fig, ax = plt.subplots(2,figsize=(fig_size_x, fig_size_y))
+    if not automated:
 
-    ax[0].scatter(df[x],df[y],label='data',color='blue')
-    ax[0].scatter(df[x],df[fitname],label='fit',color="red")
+        fig, ax = plt.subplots(2,figsize=(fig_size_x, fig_size_y))
 
-    ax[1].scatter(df[x],df[fitsub],label='fit subtraction',color="black")
+        ax[0].scatter(df[x],df[y],label='data',color='blue')
+        ax[0].scatter(df[x],df[fitname],label='fit',color="red")
 
-    for i in ax:
-        i.grid(True)
-        i.legend(loc="best")
+        ax[1].scatter(df[x],df[fitsub],label='fit subtraction',color="black")
 
-    print("#"*10)
-    print("SELECT PEAKS OF OSCILLATIONS")
-    print("#"*10)
-    
+        for i in ax:
+            i.grid(True)
+            i.legend(loc="best")
 
-    
-    print(plt.ginput(2))
 
-    
-   
+        
+        plt.show()
+
     return df
 
 
-def StepWiseAnalysis(df,window, subwindows, filename,identifier, selectregion=False):
+def PeakElector(df,**kwargs):
+    y = kwargs.pop('y', "P124A (V)")
+    x = kwargs.pop('x', "B Field (T)")
+
+    fig, ax = plt.subplots(figsize=(fig_size_x, fig_size_y))
+    ax.scatter(df[x],df[y],label=y,color='blue')
+    ax.legend(loc='best')
+    tuples = plt.ginput(2,timeout=False)        
+    xlims = numpy.asarray([c[0] for c in tuples])
+    cut_data = df[(df[x] > xlims[0]) & (df[x] < xlims[1])]
+
+
+def StepWiseAnalysis(df,window, subwindows, filename,identifier, **kwargs):
+    y = kwargs.pop('y', "P124A (V)")
+    x = kwargs.pop('x', "B Field (T)")
+
+    selectregion=kwargs.pop("selectregion",False)
     #print(df)
+    function="ThirdOrder"
+    fitname=y+" "+function+" fit"
+    fitsub=fitname+" subtraction"
+
     df = df.iloc[window[0]:window[1]]
 
-    df = gff(df,"ThirdOrder",selectregion=selectregion)
+    # Does fit subtraction for whole window
+    df = GFF(df,function,selectregion=selectregion)
 
     for sw in subwindows:
         s,f=sw[0],sw[1]
         cut= df.iloc[s:f]
+
+        PeakElector(cut)
         
 
     
@@ -408,16 +427,13 @@ def ABOscillation(filenames,s, **kwargs):
         stepsPerSubWindow = int(numpy.ceil(subwindowWidth/b_stepsize))
         stepsPerGauss = numpy.ceil(1E-5/b_stepsize)
 
-        # window = [start index df window:int, end index df window:int]
-        for idx, w in enumerate(windows):
-            
-            splits_for_subwindows = numpy.arange(min(w),max(w), stepsPerSubWindow)
-            #print(splits_for_subwindows)
-            subwindows = MakeSteppedSpan(splits_for_subwindows, stepsize=int(stepsPerSubWindow/2))
-            #StepWiseAnalysis(df, w, subwindows, i,idx)
-            StepWiseAnalysis(df, w, subwindows, i,idx,selectregion=True)
+        print("points per subwindow",stepsPerSubWindow)
 
-            exit()
+        # window = [start index df window:int, end index df window:int]
+        for idx, w in enumerate(windows):          
+            splits_for_subwindows = numpy.arange(min(w),max(w), stepsPerSubWindow)
+            subwindows = MakeSteppedSpan(splits_for_subwindows, stepsize=int(stepsPerSubWindow/2))
+            StepWiseAnalysis(df, w, subwindows, i,idx,selectregion=True)
 
             
 
