@@ -10,56 +10,46 @@ matplotlib.rc('font', **font)
 plt.rcParams.update({
         "text.usetex": True})
 
-"""
-Test the DFFT. Make an x^2 thing with / sin(2pi x/(0.00058)) superimposed. Then test the thing.
-"""
 
-def MakeSpan(iterable, max_val, stepsize, **kwargs):
+def MakeSteppedSpan(iterable, **kwargs):
     """
-    takes an iterable and creates a list of lists that contains
-    start/end values that by default do not overlap.
-
-    The degenerate flag allows for creation of regions with an
-    approximately fixed width to shift through the data at a 
-    given step-size
-
+        take a minimum and maximum value from a list, 
+        Use their difference for a width.
+        From minimum to maximum value, create tuples that
+        span width from minimum to maximum value.
+        return tuples  
     """
-    degenerate = kwargs.pop('degenerate', False)
     min_val = kwargs.pop("min_val", min(iterable))
-    pairs = []
-    if degenerate:
-        width = kwargs.pop('width', 0)
-        initial = min_val
-        final = initial+width
-        steps = int((max_val-width)/stepsize)
-        a = [[min_val+stepsize*i, width+stepsize*i] for i in range(steps)]
-        a[-1]=[a[-1][0], max_val]
-        pairs=a
-    else:
-        itr = iter(iterable)
-        for i, v in enumerate(itr):
-            if v == max(iterable):
-                pairs.append([v,max_val])
-                if  pairs[-1][1]-pairs[-1][0]< stepsize-1:
-                    """
-                    if the very last tuple would return too small of a span,
-                        make the penultimate span just a little bit larger
-                    """
-                    ef = pairs[-1][1]
-                    sr = pairs[-2][0]
-                    del pairs[-1]
-                    del pairs[-1]
-                    pairs.append([sr,ef])
-                break
-            else:
-                pairs.append([iterable[i], iterable[i+1]-1])
-        else:
-            # if the above for loop executes fully
-            # then the v==max(iterable) was never reached. If that happened
-            # then the loop stopped running at the continue statement, meaning
-            # the iterable passed was len < 1. Meaning only min-max is needed.
-            pairs = [[min_val, max_val]]
-    return pairs
+    max_val = kwargs.pop("max_val",max(iterable))
+    stepsize = kwargs.pop("stepsize",0)
+
+    wholeIntervals= int(numpy.floor((max_val-min_val)/stepsize))-1
+    spans = [[min_val+stepsize*i, min_val+stepsize*(i+1)-1] for i in range(wholeIntervals)]
+    spans.append([min_val+stepsize*wholeIntervals,max_val])
+    return spans
+
+def MakeSplitSpan(iterable,**kwargs):
+    """
+        Iterable is the splitpoints,
+        min and max values will be presumed from 
+            iterable if not in kwargs.
+
+        From minimum to maximum value, create tuples that
+        span from minimum to maximum value.
+        return tuples  
+
+    """
+    min_val = kwargs.pop("min_val", min(iterable))
+    max_val = kwargs.pop("max_val",max(iterable))
+    intervals = len(iterable)-1
+    span=[]
+    for i in range(intervals):
+        if i == 0:
+            span.append([min_val,iterable[i+1]-1])
+            continue
+        span.append([iterable[i],iterable[i+1]-1])
+
+    return span
 
 def GetNumber(name):
     # Grabs a number from the filename that follows the lab's
@@ -92,9 +82,9 @@ def ParseFile(file, s, y="P124A (V)"):
 def SplitFile(*args,**kwargs):
     df= args[0]
 
-    intervals = kwargs.get("intervals",3)
+    numWindows = kwargs.get("numWindows",3)
     B=kwargs.get('B',"B Field (T)")
-    width=kwargs.get("width", int(len(df[B])/intervals))
+    width=kwargs.get("width", int(len(df[B])/numWindows))
     degenerate=kwargs.get('degenerate',False)
     if degenerate:
         stepsize=kwargs.get('stepsize',1)
@@ -106,10 +96,11 @@ def SplitFile(*args,**kwargs):
     # range_for_df is a nested-list [[start1, end1], ...]
     #   the difference between endX and start(X+1) is 1.
     #   No data is "sliced out" of analysis.
+    
     if degenerate:
-        range_for_df = MakeSpan(splits_for_df, len(df[B])-1, 50,degenerate=degenerate,width=width)
+        range_for_df = MakeSteppedSpan(splits_for_df, len(df[B])-1, 50,degenerate=degenerate,width=width)
     else:
-        range_for_df = MakeSpan(splits_for_df, len(df[B])-1, len(df[B])-1)
+        range_for_df = MakeSplitSpan(splits_for_df,max_val=len(df[B])-1)
 
     return splits_for_df,range_for_df
 
@@ -265,41 +256,20 @@ def anYN(df,idx,T,B,yn,fn,cut,other,s, others_ys=["SR830 1 X (V)"]):
     plt.savefig("dump/"+"".join(list(fn)[:-4])+"-Cut-"+"%5.5i"% (idx), dpi=dpi)
     plt.close('all')
 
-def Analyze(df,idx,T,B,y,fn,cut,other,s):
-    num = int(GetNumber(fn))
-    if len(s[num]) == 1:
-        anY1(df,idx,T,B,y,fn,cut,other,s)
-    else:
-        anYN(df,idx,T,B,y,fn,cut,other,s)
-
-def main(filenames, s):
-    result_objects = []
-    d = input("Y for Auto, N for manual: ")
-    if d.upper()=="Y":
-        for i in filenames:
-            ParseFile(i, s)
-    else:
-        for i in filenames:
-            ParseFile(i, s,autocut=False)
-    exit()
+def StepWiseAnalysis(df,subwindows, fnd):
+    print(subwindows)
     
-sensitivity = {1:[500*10**-6], 2:[500*10**-6], 3:[50*10**-3],
-               4:[50*10**-6], 5:[10**-6], 6:[10**-6], 
-               7:[500*10**-6], 8:[500*10**-6], 9:[1/500],
-               10:[5*10**-6]}
-sensitivity = {i:[1] for i in range(11)}
-sensitivity[9] = [1/500]
-sensitivity[10] = [1,1]
-
-
 def ABOscillation(filenames,s, **kwargs):
-
     B=kwargs.get('B',"B Field (T)")
+    #Subwindow width in units of Tesla
     subwindowWidth=kwargs.get("subwindowWidth",5E-4)
+    numWindows=kwargs.get("numWindows",3)
     for i in filenames:
         df = ParseFile(i,s)
-        # nondegenerate
-        splitpoints, windows = SplitFile(df)
+
+        #print(df)
+        # No overlap in splits.
+        splitpoints, windows = SplitFile(df,numWindows)
 
         print("window indecies:",windows)
 
@@ -309,15 +279,26 @@ def ABOscillation(filenames,s, **kwargs):
         dxax = dxax_NaN[~numpy.isnan(dxax_NaN)]
         b_stepsize = abs(dxax.mean())
         print(b_stepsize, (max(xax)-min(xax))/(len(xax)))
-        stepsPerSubWindow = numpy.ceil(subwindowWidth/b_stepsize)
+        stepsPerSubWindow = int(numpy.ceil(subwindowWidth/b_stepsize))
         stepsPerGauss = numpy.ceil(1E-5/b_stepsize)
 
+        # window = [start index df window:int, end index df window:int]
         for idx, w in enumerate(windows):
-            subwindows = MakeSpan(w, max(w),stepsPerSubWindow,degenerate=True)
+            
+            splits_for_subwindows = numpy.arange(min(w),max(w), stepsPerSubWindow)
+            print(splits_for_subwindows)
+            subwindows = MakeSteppedSpan(splits_for_subwindows, stepsize=int(stepsPerSubWindow/2))
+            StepWiseAnalysis(df, subwindows, i)
+            exit()
 
-            StepWiseAnalysis
 
-        
+sensitivity = {1:[500*10**-6], 2:[500*10**-6], 3:[50*10**-3],
+               4:[50*10**-6], 5:[10**-6], 6:[10**-6], 
+               7:[500*10**-6], 8:[500*10**-6], 9:[1/500],
+               10:[5*10**-6]}
+sensitivity = {i:[1] for i in range(11)}
+sensitivity[9] = [1/500]
+sensitivity[10] = [1,1]       
 
 #f = ["Aug26-Rings2-"+str(i)+".dat" for i in range(1,12)]
 f = ["Aug26-Rings2-2.dat"]
