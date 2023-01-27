@@ -92,8 +92,8 @@ def ParseFile(file, s, y="P124A (V)"):
 
 def SplitFile(*args,**kwargs):
     df= args[0]
+    numWindows=args[1]
 
-    numWindows = kwargs.get("numWindows",3)
     B=kwargs.get('B',"B Field (T)")
     width=kwargs.get("width", int(len(df[B])/numWindows))
     degenerate=kwargs.get('degenerate',False)
@@ -320,7 +320,8 @@ def GFF(df, function, **kwargs):
         fig, ax = plt.subplots(figsize=(fig_size_x, fig_size_y))
         ax.scatter(df[x],df[y],label=y,color='blue')
         ax.legend(loc='best')
-        tuples = plt.ginput(2,timeout=False)        
+        tuples = plt.ginput(2,timeout=False)
+        plt.close()
         xlims = numpy.asarray([c[0] for c in tuples])
         cut_data = df[(df[x] > xlims[0]) & (df[x] < xlims[1])]
 
@@ -361,27 +362,33 @@ def GFF(df, function, **kwargs):
         for i in ax:
             i.grid(True)
             i.legend(loc="best")
-
-
-        
-        plt.show()
+    plt.show()
+    plt.close()
 
     return df
 
 
-def PeakElector(df,**kwargs):
+def PeakElector(df, sw, **kwargs):
+    s,f=sw[0],sw[1]
+    cut= df.iloc[s:f]
     y = kwargs.pop('y', "P124A (V)")
     x = kwargs.pop('x', "B Field (T)")
+    identifier = kwargs.pop("identifier", "None")
 
     fig, ax = plt.subplots(figsize=(fig_size_x, fig_size_y))
-    ax.scatter(df[x],df[y],label=y,color='blue')
+    ax.scatter(cut[x],cut[y],label=y,color='blue')
     ax.legend(loc='best')
+    print("Elect peak",end="")
     tuples = plt.ginput(2,timeout=False)        
+    plt.close()
     xlims = numpy.asarray([c[0] for c in tuples])
-    cut_data = df[(df[x] > xlims[0]) & (df[x] < xlims[1])]
+    delta = max(xlims)-min(xlims)
+    print(" Δx =", round(delta,6),"T. =", round(delta*10**4, 6), "G.", end=" ")
+    return {"end":max(xlims), "start":min(xlims),"period":delta, "start subwindow":s, "end subwindow":f}
 
 
 def StepWiseAnalysis(df,window, subwindows, filename,identifier, **kwargs):
+    analysisdf = pandas.DataFrame()
     y = kwargs.pop('y', "P124A (V)")
     x = kwargs.pop('x', "B Field (T)")
 
@@ -396,19 +403,29 @@ def StepWiseAnalysis(df,window, subwindows, filename,identifier, **kwargs):
     # Does fit subtraction for whole window
     df = GFF(df,function,selectregion=selectregion)
 
-    for sw in subwindows:
-        s,f=sw[0],sw[1]
-        cut= df.iloc[s:f]
+    startwindow = window[0]
 
-        PeakElector(cut)
+    for idx, sw in enumerate(subwindows):
         
+        windowsave = {}
+        
+        windowsave = PeakElector(df,sw,identifier=str(identifier+idx),y=fitsub)
+        windowdf = pandas.DataFrame(windowsave,index=[idx])
+
+        analysisdf = pandas.concat([analysisdf,windowdf])
+        
+        print(idx, "of", len(subwindows), "complete.")
+
+        print(analysisdf)
+    
+    return analysisdf
 
     
 def ABOscillation(filenames,s, **kwargs):
     B=kwargs.get('B',"B Field (T)")
     #Subwindow width in units of Tesla
-    subwindowWidth=kwargs.get("subwindowWidth",5E-4)
-    numWindows=kwargs.get("numWindows",3)
+    subwindowWidth=kwargs.get("subwindowWidth",2E-3)
+    numWindows=kwargs.get("numWindows",24)
     for i in filenames:
         df = ParseFile(i,s)
 
@@ -430,10 +447,14 @@ def ABOscillation(filenames,s, **kwargs):
         print("points per subwindow",stepsPerSubWindow)
 
         # window = [start index df window:int, end index df window:int]
-        for idx, w in enumerate(windows):          
+        for idx, w in enumerate(windows):
+            if idx>0:
+                identifier=len(w[idx-1])+idx
+            else:
+                identifier=idx
             splits_for_subwindows = numpy.arange(min(w),max(w), stepsPerSubWindow)
             subwindows = MakeSteppedSpan(splits_for_subwindows, stepsize=int(stepsPerSubWindow/2))
-            StepWiseAnalysis(df, w, subwindows, i,idx,selectregion=True)
+            StepWiseAnalysis(df, w, subwindows, i,identifier,selectregion=True)
 
             
 
@@ -466,4 +487,12 @@ d
             -> already done in MakeSpan.
     Subdivide window:
             -> Perhaps re-do it in
+"""
+
+
+"""
+TODO:
+    1) remove spurious graphs in the GFF & Peak analysers
+    2) automate peak election (?)
+    3
 """
