@@ -177,7 +177,8 @@ def anY1(df,idx,T,B,y,fn,cut,other,s):
     g = numpy.real(iDFFT(f))
     #ax[1].set_xlabel('Tesla')
 
-    """ax[2].scatter(cut[B], g, s=3, label="Double fourier transofrm")
+    """
+    ax[2].scatter(cut[B], g, s=3, label="Double fourier transofrm")
     ax[3].scatter(cut[B], cut[y].to_numpy()-g, s=3, label="Diff Actual v. Fourier Tform")
 
 
@@ -200,7 +201,8 @@ def anY1(df,idx,T,B,y,fn,cut,other,s):
     ax[4].set_xscale('log')
     ax[4].set_yscale('log')
     #ax[4].set_xlim(xm,xM)
-    #ax[4].set_ylim(ym,yM)"""
+    #ax[4].set_ylim(ym,yM)
+    """
 
     for i in ax:
         i.grid(True)
@@ -347,12 +349,13 @@ def GFF(df, function, **kwargs):
     fitname=y+" "+function+" fit"
     fitsub=fitname+" subtraction"
 
-    df[fitname]=get_function(function, df[x], var)
-    df[fitsub]=df[y]-df[fitname]
+    df.insert(column=fitname, value=get_function(function, df[x], var),loc=4)
+    df.insert(column=fitsub, value=df[y]-df[fitname],loc=5)
 
     if not automated:
 
         fig, ax = plt.subplots(2,figsize=(fig_size_x, fig_size_y))
+        plt.title(filename)
 
         ax[0].scatter(df[x],df[y],label='data',color='blue')
         ax[0].scatter(df[x],df[fitname],label='fit',color="red")
@@ -362,14 +365,12 @@ def GFF(df, function, **kwargs):
         for i in ax:
             i.grid(True)
             i.legend(loc="best")
-    plt.show()
-    plt.close()
 
-    return df
+    return df, fig
 
 
 def PeakElector(df, sw, **kwargs):
-    s,f=sw[0],sw[1]
+    s,f=int(sw[0]),int(sw[1])
     cut= df.iloc[s:f]
     y = kwargs.pop('y', "P124A (V)")
     x = kwargs.pop('x', "B Field (T)")
@@ -382,7 +383,13 @@ def PeakElector(df, sw, **kwargs):
     tuples = plt.ginput(2,timeout=False)        
     plt.close()
     xlims = numpy.asarray([c[0] for c in tuples])
-    delta = max(xlims)-min(xlims)
+    if len(tuples) == 0:
+        # User pressed enter, and cancelled the input.
+        # Null out the data.
+        delta = 0
+        xlims=numpy.asarray([0,0])
+    else:
+        delta = max(xlims)-min(xlims)
     print(" Δx =", round(delta,6),"T. =", round(delta*10**4, 6), "G.", end=" ")
     return {"end":max(xlims), "start":min(xlims),"period":delta, "start subwindow":s, "end subwindow":f}
 
@@ -391,50 +398,50 @@ def StepWiseAnalysis(df,window, subwindows, filename,identifier, **kwargs):
     analysisdf = pandas.DataFrame()
     y = kwargs.pop('y', "P124A (V)")
     x = kwargs.pop('x', "B Field (T)")
-
+    fpath = kwargs.pop("path","")
     selectregion=kwargs.pop("selectregion",False)
-    #print(df)
+    
     function="ThirdOrder"
     fitname=y+" "+function+" fit"
     fitsub=fitname+" subtraction"
-
     df = df.iloc[window[0]:window[1]]
-
     # Does fit subtraction for whole window
-    df = GFF(df,function,selectregion=selectregion)
-
+    df,fig = GFF(df,function,selectregion=selectregion,filename=filename)
+    print("\n\nClick the suspected peaks of the Oscillation.")
+    print("Press ENTER. When all peaks have been denoted.")
+    print("Left click to mark, Right click to unmark.")
+    tuples = plt.ginput(-1, timeout=False)
+    plt.close()
     startwindow = window[0]
+    # This code block interprets the user-selected tupples from bulk-selection.
 
+    """
+    # This code block takes cut, and subdivides it.
     for idx, sw in enumerate(subwindows):
-        
         windowsave = {}
-        
         windowsave = PeakElector(df,sw,identifier=str(identifier+idx),y=fitsub)
         windowdf = pandas.DataFrame(windowsave,index=[idx])
-
         analysisdf = pandas.concat([analysisdf,windowdf])
-        
         print(idx, "of", len(subwindows), "complete.")
-
-        print(analysisdf)
-    
+    """
     return analysisdf
 
     
 def ABOscillation(filenames,s, **kwargs):
+    try:
+        with open("Record"+"".join(filenames[0].split('.dat'))+".csv", 'r') as f:
+            record = pandas.read_csv(f)
+    except:
+        record = pandas.DataFrame()
     B=kwargs.get('B',"B Field (T)")
     #Subwindow width in units of Tesla
-    subwindowWidth=kwargs.get("subwindowWidth",2E-3)
-    numWindows=kwargs.get("numWindows",24)
+    subwindowWidth=kwargs.get("subwindowWidth",3E-3)
+    numWindows=kwargs.get("numWindows",10)
     for i in filenames:
         df = ParseFile(i,s)
-
-        #print(df)
         # No overlap in splits.
         splitpoints, windows = SplitFile(df,numWindows)
-
         print("window indecies:",windows)
-
         #Find appropriate window subdivision (~5mT=5E-4)
         xax=df[B]
         dxax_NaN = xax.diff().to_numpy()
@@ -443,20 +450,14 @@ def ABOscillation(filenames,s, **kwargs):
         #print(b_stepsize, (max(xax)-min(xax))/(len(xax)))
         stepsPerSubWindow = int(numpy.ceil(subwindowWidth/b_stepsize))
         stepsPerGauss = numpy.ceil(1E-5/b_stepsize)
-
         print("points per subwindow",stepsPerSubWindow)
-
         # window = [start index df window:int, end index df window:int]
+        # Identifier need to uniquely track the nth subwindow across all windows.
         for idx, w in enumerate(windows):
-            if idx>0:
-                identifier=len(w[idx-1])+idx
-            else:
-                identifier=idx
+            identifier=idx+w[0]
             splits_for_subwindows = numpy.arange(min(w),max(w), stepsPerSubWindow)
             subwindows = MakeSteppedSpan(splits_for_subwindows, stepsize=int(stepsPerSubWindow/2))
-            StepWiseAnalysis(df, w, subwindows, i,identifier,selectregion=True)
-
-            
+            record = pandas.concat([record,StepWiseAnalysis(df, w, subwindows, i,identifier)])
 
 
 sensitivity = {1:[500*10**-6], 2:[500*10**-6], 3:[50*10**-3],
@@ -468,7 +469,7 @@ sensitivity[9] = [1/500]
 sensitivity[10] = [1,1]       
 
 #f = ["Aug26-Rings2-"+str(i)+".dat" for i in range(1,12)]
-f = ["Aug26-Rings2-2.dat"]
+f = ["Aug26-Rings2-1.dat"]
 #main(f,sensitivity)
 ABOscillation(f,sensitivity)
 
